@@ -119,10 +119,14 @@ def window(points):
 
 
 def players_at(players, age_target):
-    """The page's player count at the target, from its own reads or the release prior.
+    """The page's player count at the target, from its own reads or the release law.
 
     A history that has not moved yet (launch night, before Exophase's first refresh) says
-    nothing about the future, so there the release-time level carries the answer.
+    nothing about the future, so there the release-time law carries the whole answer. Once
+    the page has been refreshed a few times its own growth is real evidence, and the two
+    are averaged on the log scale in proportion to how many distinct levels the history
+    shows -- a fixed blend would keep the prior's weight long after the data had earned a
+    bigger share, and this at least hands over as the evidence accumulates.
     """
     age_last, last_p = players[-1]
     prior = PLAYERS_PER_HOUR * age_target ** PLAYERS_EXP
@@ -130,16 +134,22 @@ def players_at(players, age_target):
     pw = window(players)
     distinct = len({round(p[1], 3) for p in pw})
     if len(pw) < 3 or distinct < 3:
-        estimate = prior
-    else:
-        _, b = fit_line([p[0] for p in pw], [math.log(p[1]) for p in pw])
-        if b is None or not math.isfinite(b):
-            estimate = prior
-        else:
-            b = clamp(b, 0.0, 2.0)
-            estimate = last_p * (age_target / age_last) ** b
-            w = clamp(len(pw) / 12.0, 0.0, 0.8)
-            estimate = math.exp(w * math.log(estimate) + (1.0 - w) * math.log(prior))
+        return max(prior, last_p)
+
+    _, b = fit_line([p[0] for p in pw], [math.log(p[1]) for p in pw])
+    if b is None or not math.isfinite(b):
+        return max(prior, last_p)
+
+    # The slope the history really measured, bounded to a plausible adoption curve.
+    b = clamp(b, 0.0, 2.0)
+    own = last_p * (age_target / age_last) ** b
+    # Weight the history by the distinct player levels it shows, and by how far it spans:
+    # a curve measured across a 12-hour refresh cycle is worth more than one across four
+    # reads of the same unchanged page.
+    span = math.log(max(age_last, 1.0)) - math.log(max(pw[0][0], 1.0))
+    evidence = clamp(distinct / 8.0, 0.0, 1.0) * clamp(span / 0.8, 0.0, 1.0)
+    weight = 0.85 * evidence
+    estimate = math.exp(weight * math.log(own) + (1.0 - weight) * math.log(prior))
     return max(estimate, last_p)
 
 
